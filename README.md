@@ -1,5 +1,5 @@
 # **Evil C2 Server** 
-*A Command & Control (C2) server for educational purposes only. *
+**A Command & Control (C2) server for educational purposes only. **
 
 This is a **fully functional** C2 server written in Python. It allows you to:
 - **Execute remote shell commands** 
