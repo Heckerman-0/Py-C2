@@ -31,7 +31,7 @@ Then on victim computer
 python3 c2_client.py
 🔹 Available Commands
 Command	Description
-shell-Enter remote shell mode. Run any command like a god. 
+shell-Enter remote shell mode. Run any command. 
 upload <file_path>-Upload a file to the victim. 
 download <file_path>-Download a file from the victim. 
 list- List files in the victim’s current directory. 
