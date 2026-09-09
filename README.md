@@ -1,5 +1,5 @@
 # **Evil C2 Server** 😈🔥
-*A malicious Command & Control (C2) server for educational purposes only. 😉*
+*A Command & Control (C2) server for educational purposes only. 😉*
 
 This is a **fully functional** C2 server written in Python. It allows you to:
 - **Execute remote shell commands** 🐍
@@ -12,15 +12,15 @@ This is a **fully functional** C2 server written in Python. It allows you to:
 ---
 
 ## **📌 Features**
-✅ **Remote Shell Access** – Run commands on the victim’s machine like a god. 😈
+✅ **Remote Shell Access** – Run commands on the victim’s machine . 😈
 ✅ **File Upload/Download** – Steal their secrets or drop your malware. 💀
-✅ **Simple & Lightweight** – No bloated dependencies, just pure evil. 🖥️
+✅ **Simple & Lightweight** – No bloated dependencies. 🖥️
 ✅ **Multi-Threaded** – Handle multiple victims at once. 🤡
 
 ---
 
 ## **🚀 Installation**
-1. **Clone this repo** (or just copy-paste the code, you lazy fuck):
+1. **Clone this repo** (or just copy-paste the code, you lazy hacker):
    ```bash
    git clone https://github.com/your-evil-repo/evil-c2.git
    cd evil-c2
